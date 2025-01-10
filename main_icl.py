@@ -3,36 +3,22 @@
 
 import argparse
 import os
-import copy
 import time
-from enum import Enum
 import importlib
 
 import torch
 import torch.nn.functional as F
-import torch.backends.cudnn as cudnn
-import torch.distributed as dist
-import torch.multiprocessing as mp
 import torch.nn as nn
 import torch.nn.parallel
 import torch.optim
 import torch.utils.data
-import torchvision.datasets as datasets
-import torchvision.models as models
-import torchvision.transforms as transforms
-from torch.optim.lr_scheduler import StepLR
-from torch.utils.data import Subset
 import attention
 
-import datetime
 import utils
 import numpy as np
-import einops
 import random
-import pandas as pd
 
 import wandb 
-import sys 
 
 parser = argparse.ArgumentParser(description='GMM L2L Training with Sequence Model')
 parser.add_argument('--SLURM_ARRAY_TASK_ID', default=1, type=int,
@@ -102,11 +88,11 @@ parser.add_argument(
     help="whether to log to wandb",
 )
 parser.add_argument(
-    "--wandb_project",type=str,default="stability",
+    "--wandb_project",type=str,default="l2l",
     help="wandb project name",
 )
 parser.add_argument(
-    "--wandb_group_name",type=str,default="stability",
+    "--wandb_group_name",type=str,default="",
     help="wandb project name",
 )
 
@@ -227,8 +213,8 @@ print("LOCAL RANK ", local_rank)
 print("args:\n",vars(args))
 # setup weights and biases (optional)
 if local_rank==0 and args.wandb_log: # only use main process for wandb logging
-    print(f"wandb {args.wandb_project} run")
-    wandb.login(host='https://stability.wandb.io') # need to configure wandb environment beforehand
+    YOUR_WANDB_HOST = "https://api.wandb.ai" # change this to your wandb host
+    wandb.login(host=YOUR_WANDB_HOST) # need to configure wandb environment beforehand
     wandb_model_name = f"{args.fileprefix}_K_{args.K}_num_tasks_{args.num_tasks}"
     wandb_config = vars(args)
     args.wandb_group_name = f"{args.experiment_name}"
@@ -396,34 +382,9 @@ class SequenceGMM(torch.utils.data.Dataset):
 
 importlib.reload(attention)
 # define the model, optimizer, and scheduler, and criterion
-if args.arch == "mlp":
-    width = 28
-    model = nn.Sequential(
-        nn.Flatten(),
-        nn.Linear(width**2, args.num_hidden_features),
-        nn.ReLU(),
-        nn.Linear(args.num_hidden_features, args.num_hidden_features),
-        nn.ReLU(),
-        nn.Linear(args.num_hidden_features, 10),
-    ).to(device)
-elif args.arch == "transformer":
-    width = 28
-    model = attention.Transformer(x_dim=width**2+10, model_size=args.num_hidden_features, len_context = args.len_context,
-                                  num_classes=10, depth=4, heads=8, 
-                                  mlp_dim=4*args.num_hidden_features, dim_head = 32, positional_encoding=False).to(device)
-elif args.arch == "pytorch_transformer":
+if args.arch == "causal_transformer_embed":
     nheads = 1 # np.clip(args.num_hidden_features // 8, 1, 8)
-    model = attention.PytorchTransformer(x_dim=D+args.L, model_size=args.num_hidden_features, len_context = args.len_context,
-                                  num_classes=args.L, depth=1, nheads=nheads, 
-                                  mlp_dim=args.num_hidden_features).to(device)
-elif args.arch == "causal_transformer":
-    nheads = 1 # np.clip(args.num_hidden_features // 8, 1, 8)
-    model = attention.CausalTransformerOneMinusOne(x_dim=D+args.L, model_size=args.num_hidden_features,  
-                                  num_classes=args.L,  
-                                  mlp_dim=args.num_hidden_features).to(device)
-elif args.arch == "causal_transformer_embed":
-    nheads = 1 # np.clip(args.num_hidden_features // 8, 1, 8)
-    model = attention.CausalTransformerOneMinusOneEmbed(x_dim=D+args.L, 
+    model = attention.CausalTransformer(x_dim=D+args.L, 
                                                         model_size=64,  
                                   num_classes=args.L,                 
                                   mlp_dim=args.num_hidden_features,
@@ -438,18 +399,7 @@ elif args.arch == "multilayer_transformer":
                                   mlp_dim=args.num_hidden_features,
                                   is_layer_norm=args.is_layer_norm
                                   ).to(device)
-elif args.arch == "m2causal_transformer":
-    nheads = 1 # np.clip(args.num_hidden_features // 8, 1, 8)
-    model = attention.M2CausalTransformer(x_dim=D+args.L, D = D, model_size=args.num_hidden_features,  
-                                          temperature=args.temperature,
-                                  num_classes=args.L,  
-                                  mlp_dim=args.num_hidden_features).to(device)
-elif args.arch == "phenomenologicalcausal_transformer":
-    nheads = 1 # np.clip(args.num_hidden_features // 8, 1, 8)
-    model = attention.PhenomenologicalTransformer(D = D,  
-                                          temperature=args.temperature,
-                                  num_classes=args.L,
-                                  mlp_dim=args.num_hidden_features).to(device)
+ 
     
 if args.optimizer == 'SGD':
     opt_grouped_parameters = [
@@ -492,11 +442,7 @@ if use_cuda:
     train_kwargs.update(cuda_kwargs)
     test_kwargs.update(cuda_kwargs)
 
-
-transform=transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize((0.1307,), (0.3081,))
-    ]) 
+ 
 
 train_dataset = SequenceGMM(K = args.K, D = D, 
                             burstiness=args.burstiness,

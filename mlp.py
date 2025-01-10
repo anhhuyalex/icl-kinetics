@@ -74,11 +74,11 @@ parser.add_argument(
     help="whether to log to wandb",
 )
 parser.add_argument(
-    "--wandb_project",type=str,default="stability",
+    "--wandb_project",type=str,default="l2l",
     help="wandb project name",
 )
 parser.add_argument(
-    "--wandb_group_name",type=str,default="stability",
+    "--wandb_group_name",type=str,default="",
     help="wandb project name",
 )
     
@@ -127,8 +127,8 @@ print("LOCAL RANK ", local_rank)
 print("args:\n",vars(args))
 # setup weights and biases (optional)
 if local_rank==0 and args.wandb_log: # only use main process for wandb logging
-    print(f"wandb {args.wandb_project} run")
-    wandb.login(host='https://stability.wandb.io') # need to configure wandb environment beforehand
+    YOUR_WANDB_HOST = "https://api.wandb.ai" # change this to your wandb host
+    wandb.login(host=YOUR_WANDB_HOST) # need to configure wandb environment beforehand
     wandb_model_name = f"{args.fileprefix}_K_{args.K}_prob_new_K_{args.prob_new_K}"
     wandb_config = vars(args)
     args.wandb_group_name = f"{args.experiment_name}_seed_{args.seed}"
